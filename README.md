@@ -42,4 +42,86 @@ class ShippingAddress(models.Model):
     state = models.CharField(max_length=100)
     zipcode = models.CharField(max_length=20)
     date_added = models.DateTimeField(auto_now_add=True)
+    from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.forms import UserCreationForm
+from .models import Product, Category, Order, OrderItem, ShippingAddress
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+import json
+
+def home(request):
+    categories = Category.objects.all()
+    products = Product.objects.all()
+    return render(request, 'store/home.html', {'categories': categories, 'products': products})
+
+def product_detail(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    return render(request, 'store/product_detail.html', {'product': product})
+
+@login_required
+def cart(request):
+    order, created = Order.objects.get_or_create(user=request.user, complete=False)
+    items = order.orderitem_set.all()
+    return render(request, 'store/cart.html', {'items': items, 'order': order})
+
+@login_required
+def checkout(request):
+    order = get_object_or_404(Order, user=request.user, complete=False)
+    if request.method == 'POST':
+        address = request.POST.get('address')
+        city = request.POST.get('city')
+        state = request.POST.get('state')
+        zipcode = request.POST.get('zipcode')
+        ShippingAddress.objects.create(user=request.user, order=order, address=address, city=city, state=state, zipcode=zipcode)
+        order.complete = True
+        order.save()
+        return redirect('home')
+    return render(request, 'store/checkout.html', {'order': order})
+
+def register(request):
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect('login')
+    else:
+        form = UserCreationForm()
+    return render(request, 'store/register.html', {'form': form})
+
+def user_login(request):
+    if request.method == 'POST':
+        username = request.POST['username']
+        password = request.POST['password']
+        user = authenticate(request, username=username, password=password)
+        if user:
+            login(request, user)
+            return redirect('home')
+    return render(request, 'store/login.html')
+
+def user_logout(request):
+    logout(request)
+    return redirect('home')
+
+@login_required
+def update_item(request):
+    data = json.loads(request.body)
+    productId = data['productId']
+    action = data['action']
+
+    product = get_object_or_404(Product, id=productId)
+    order, created = Order.objects.get_or_create(user=request.user, complete=False)
+    orderItem, created = OrderItem.objects.get_or_create(order=order, product=product)
+
+    if action == 'add':
+        orderItem.quantity += 1
+    elif action == 'remove':
+        orderItem.quantity -= 1
+    orderItem.save()
+
+    if orderItem.quantity <= 0:
+        orderItem.delete()
+
+    return JsonResponse('Item was updated', safe=False)
+    
     
